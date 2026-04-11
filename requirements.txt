@@ -1,0 +1,9 @@
+flask
+flask-pymongo
+flask-bcrypt
+flask-login
+flask-cors
+python-dotenv
+pymongo
+dnspython
+werkzeug
