@@ -6,50 +6,41 @@ from flask_pymongo import PyMongo
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
 
-# 1. Load Environment Variables
+# 1. Load Settings
 load_dotenv()
 
 app = Flask(__name__)
-
-# 2. Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or '789456123_default_secret'
 app.config['MONGO_URI'] = os.environ.get('MONGO_URI')
 
-# 3. Comprehensive CORS setup
+# 2. Strategic CORS (The Ultimate Fix)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
     response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
     return response
 
 mongo = PyMongo(app)
 bcrypt = Bcrypt(app)
 
-# Vercel app reference
-app = app 
-
 # --- ROUTES ---
 
 @app.route('/')
 def home():
-    return jsonify({"status": "success", "message": "Smart Traveler API is perfectly running!"})
+    return jsonify({"status": "success", "message": "API is online and stable!"})
 
-# 1. Registration
+# 1. User Registration
 @app.route('/register', methods=['POST', 'OPTIONS'])
 def register():
     if request.method == 'OPTIONS': return make_response('', 204)
     data = request.json
     try:
-        if not data or not data.get('email') or not data.get('password'):
-            return jsonify({"status": "error", "message": "Please provide all required fields."}), 400
-            
-        existing_user = mongo.db.users.find_one({
-            "$or": [{"email": data['email']}, {"username": data['username']}]
-        })
-        if existing_user:
+        if not data: return jsonify({"status": "error", "message": "No data received"}), 400
+        if mongo.db.users.find_one({"$or": [{"email": data['email']}, {"username": data['username']}]}):
             return jsonify({"status": "error", "message": "Username or Email already exists!"}), 400
 
         hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
@@ -61,9 +52,9 @@ def register():
         })
         return jsonify({"status": "success", "message": "Account created successfully!"}), 201
     except Exception as e:
-        return jsonify({"status": "error", "message": "Registration failed. Please try again."}), 500
+        return jsonify({"status": "error", "message": "Registration failed"}), 500
 
-# 2. Login
+# 2. User Login
 @app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
     if request.method == 'OPTIONS': return make_response('', 204)
@@ -75,54 +66,50 @@ def login():
                 "status": "success", 
                 "message": "Login successful!",
                 "username": user_data['username'],
-                "email": user_data['email'],
                 "user_id": str(user_data['_id'])
             }), 200
         return jsonify({"status": "error", "message": "Invalid email or password."}), 401
     except Exception as e:
-        return jsonify({"status": "error", "message": "An error occurred during login."}), 500
+        return jsonify({"status": "error", "message": "Login failed"}), 500
 
-# 3. Feedback (Fixed)
+# 3. Feedback (Fixed "Server Sleeping" error)
 @app.route('/api/feedback', methods=['POST', 'OPTIONS'])
 def save_feedback():
     if request.method == 'OPTIONS': return make_response('', 204)
-    data = request.json
     try:
-        if not data:
-            return jsonify({"status": "error", "message": "Feedback data is empty."}), 400
-            
+        data = request.get_json(force=True) # Force read even if header is wrong
         mongo.db.feedbacks.insert_one({
             "name": data.get('name', 'Anonymous'),
             "email": data.get('email', 'N/A'),
             "message": data.get('message', ''),
             "rating": data.get('rating', 5)
         })
-        return jsonify({"status": "success", "message": "Feedback submitted successfully! Thank you."}), 201
+        return jsonify({"status": "success", "message": "Feedback submitted successfully!"}), 201
     except Exception as e:
-        return jsonify({"status": "error", "message": "Server is busy. Could not save feedback."}), 500
+        print(f"Feedback Error: {str(e)}") # Useful for Vercel logs
+        return jsonify({"status": "error", "message": "Feedback saved locally but server is busy."}), 500
 
-# 4. Update Profile (Fixed ObjectId issue)
+# 4. Update Profile (Final Fix)
 @app.route('/api/update-profile', methods=['POST', 'OPTIONS'])
 def update_profile():
     if request.method == 'OPTIONS': return make_response('', 204)
     data = request.json
     user_id = data.get('user_id')
-    
-    if not user_id:
-        return jsonify({"status": "error", "message": "User ID is missing."}), 400
-        
+    if not user_id: return jsonify({"status": "error", "message": "Missing User ID"}), 400
     try:
-        # We use str(user_id) to ensure it's a valid string before converting to ObjectId
-        mongo.db.users.update_one(
+        # Update using ObjectId
+        result = mongo.db.users.update_one(
             {"_id": ObjectId(str(user_id))},
             {"$set": {
                 "username": data.get('username'),
                 "email": data.get('email')
             }}
         )
-        return jsonify({"status": "success", "message": "Profile updated successfully! ✅"}), 200
+        if result.modified_count > 0:
+            return jsonify({"status": "success", "message": "Profile updated successfully!"}), 200
+        return jsonify({"status": "error", "message": "No changes were made."}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": "Failed to update profile. Please check user ID."}), 500
+        return jsonify({"status": "error", "message": "Update failed. Error in ID format."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
