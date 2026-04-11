@@ -14,17 +14,18 @@ load_dotenv(os.path.join(basedir, '.env'))
 
 app = Flask(__name__)
 
-# 2. إعدادات الـ Config (معدلة لتقرأ من Vercel Environment Variables مباشرة)
+# 2. إعدادات الـ Config
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or os.getenv('SECRET_KEY', '789456123_default_secret')
 app.config['MONGO_URI'] = os.environ.get('MONGO_URI') or os.getenv('MONGO_URI')
 
-# 3. إعدادات الرفع (بدون makedirs لمنع الـ Error)
+# 3. إعدادات الرفع
 UPLOAD_FOLDER = os.path.join(basedir, 'static', 'uploads')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 
-# 4. تشغيل المكتبات
-CORS(app)
+# 4. تشغيل المكتبات وتعديل الـ CORS (حل مشكلة الـ Blocked by CORS نهائياً)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 mongo = PyMongo(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
@@ -55,7 +56,6 @@ def load_user(user_id):
 
 @app.route('/')
 def home():
-    # التأكد من الاتصال بـ MongoDB في الصفحة الرئيسية للراحة
     try:
         mongo.db.command('ping')
         db_status = "Connected"
@@ -67,8 +67,10 @@ def home():
         "database": db_status
     })
 
-@app.route('/register', methods=['POST'])
+@app.route('/register', methods=['POST', 'OPTIONS'])
 def register():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     data = request.json
     try:
         if not data or not data.get('password') or not data.get('username') or not data.get('email'):
@@ -93,8 +95,10 @@ def register():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['POST', 'OPTIONS'])
 def login():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     data = request.json
     try:
         user_data = mongo.db.users.find_one({"email": data['email']})
@@ -111,32 +115,10 @@ def login():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/update_profile', methods=['POST'])
-def update_profile():
-    try:
-        user_id = request.form.get('user_id')
-        if not user_id: return jsonify({"status": "error", "message": "Unauthorized"}), 401
-
-        update_data = {}
-        if 'name' in request.form: update_data['username'] = request.form['name']
-
-        if 'profile_pic' in request.files:
-            file = request.files['profile_pic']
-            if file and allowed_file(file.filename):
-                filename = secure_filename(f"user_{user_id}_{file.filename}")
-                # التأكد أن الفولدر موجود (مرفوع يدوياً)
-                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-                update_data['profile_pic'] = f"static/uploads/{filename}"
-
-        if update_data:
-            mongo.db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
-        
-        return jsonify({"status": "success", "message": "Profile updated!"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/feedback', methods=['POST'])
+@app.route('/api/feedback', methods=['POST', 'OPTIONS'])
 def save_feedback():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
     data = request.json
     try:
         mongo.db.feedbacks.insert_one(data)
